@@ -1,30 +1,51 @@
 const TelegramBot = require('node-telegram-bot-api');
 
-// ⚠️ NOT SAFE — use only for testing
+// ⚠️ DEMO TOKEN (NOT SAFE — CHANGE LATER)
 const token = "8708024661:AAHck_MSBLcIUV4IQsCsFETj6fVn7bE8lmI";
 
 const bot = new TelegramBot(token, { polling: true });
 
 const ADMIN_ID = 7855128004;
 
-// 🌍 Storage
+// 🌍 STORAGE
 let numbersPool = {};
 
+// STATE
 let adminState = null;
 let selectedCountry = null;
 
 //////////////////////////////////////////////////
-// 🏠 ADMIN MENU
+// ✨ ANIMATION SYSTEM
 //////////////////////////////////////////////////
 
-function adminMenu(chatId) {
-  bot.sendMessage(chatId, "👑 ADMIN PANEL", {
+function typing(chatId) {
+  bot.sendChatAction(chatId, "typing");
+}
+
+async function loading(chatId, text = "Processing...") {
+  const msg = await bot.sendMessage(chatId, "⏳ " + text);
+  await new Promise(r => setTimeout(r, 700));
+  await bot.editMessageText("⌛ Almost done...", {
+    chat_id: chatId,
+    message_id: msg.message_id
+  });
+  await new Promise(r => setTimeout(r, 700));
+  return msg.message_id;
+}
+
+//////////////////////////////////////////////////
+// 🏠 MAIN MENU
+//////////////////////////////////////////////////
+
+function mainMenu(chatId) {
+  bot.sendMessage(chatId, "👑 CONTROL PANEL", {
     reply_markup: {
       keyboard: [
+        ["🛒 Buy Number"],
         ["📱 Add Number", "📋 View Numbers"],
         ["❌ Delete Number", "🌍 Countries"],
         ["➕ Add Country", "📥 Bulk Add"],
-        ["🚀 Get Number"],
+        ["♻️ Mark Free"],
         ["⬅️ Back / Cancel"]
       ],
       resize_keyboard: true
@@ -33,7 +54,11 @@ function adminMenu(chatId) {
 }
 
 bot.onText(/\/start/, (msg) => {
-  if (msg.chat.id == ADMIN_ID) adminMenu(msg.chat.id);
+  if (msg.chat.id == ADMIN_ID) {
+    mainMenu(msg.chat.id);
+  } else {
+    bot.sendMessage(msg.chat.id, "⛔ Access Denied (Admin Only)");
+  }
 });
 
 //////////////////////////////////////////////////
@@ -41,7 +66,7 @@ bot.onText(/\/start/, (msg) => {
 //////////////////////////////////////////////////
 
 function getFreeNumber(country) {
-  const list = numbersPool[country];
+  const list = numbersPool[country]?.numbers;
   if (!list) return null;
 
   const free = list.find(n => !n.used);
@@ -52,98 +77,207 @@ function getFreeNumber(country) {
 }
 
 //////////////////////////////////////////////////
-// 🎛 MAIN HANDLER
+// 🎛 HANDLER
 //////////////////////////////////////////////////
 
-bot.on('message', (msg) => {
+bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  if (chatId != ADMIN_ID) return;
+  // 🔒 ADMIN LOCK
+  if (chatId != ADMIN_ID) {
+    bot.sendMessage(chatId, "⛔ You are not authorized.");
+    return;
+  }
 
+  // 🔙 BACK
   if (text === "⬅️ Back / Cancel") {
     reset();
-    adminMenu(chatId);
+    mainMenu(chatId);
     return;
   }
+
+  //////////////////////////////////////////////////
+  // 🛒 BUY FLOW
+  //////////////////////////////////////////////////
+
+  if (text === "🛒 Buy Number") {
+    adminState = "buy_choose_country";
+    showCountries(chatId, "🌍 Select country to buy:");
+    return;
+  }
+
+  if (adminState === "buy_choose_country" && numbersPool[text]) {
+
+    typing(chatId);
+    const msgId = await loading(chatId, "Finding number...");
+
+    const number = getFreeNumber(text);
+
+    if (!number) {
+      bot.editMessageText("❌ No free numbers available", {
+        chat_id: chatId,
+        message_id: msgId
+      });
+    } else {
+      bot.editMessageText(
+        `✨ NUMBER PURCHASED\n\n📱 ${number}\n💰 ₹${numbersPool[text].price}\n\n✔️ Assigned`,
+        {
+          chat_id: chatId,
+          message_id: msgId
+        }
+      );
+    }
+
+    reset();
+    return;
+  }
+
+  //////////////////////////////////////////////////
+  // ➕ ADD COUNTRY
+  //////////////////////////////////////////////////
 
   if (adminState === "add_country") {
-    if (!numbersPool[text]) {
-      numbersPool[text] = [];
-      bot.sendMessage(chatId, `✅ Country added: ${text}`);
-    } else {
-      bot.sendMessage(chatId, "⚠️ Already exists");
+    const parts = text.split(" ");
+    const price = parseInt(parts.pop());
+    const name = parts.join(" ");
+
+    if (!name || isNaN(price)) {
+      bot.sendMessage(chatId, "❌ Format: India 20", backBtn());
+      return;
     }
+
+    typing(chatId);
+    const msgId = await loading(chatId, "Adding country...");
+
+    if (!numbersPool[name]) {
+      numbersPool[name] = { price, numbers: [] };
+      bot.editMessageText(`✅ ${name} added ₹${price}`, {
+        chat_id: chatId,
+        message_id: msgId
+      });
+    } else {
+      bot.editMessageText("⚠️ Already exists", {
+        chat_id: chatId,
+        message_id: msgId
+      });
+    }
+
     reset();
-    adminMenu(chatId);
     return;
   }
 
+  //////////////////////////////////////////////////
+  // 📱 ADD NUMBER
+  //////////////////////////////////////////////////
+
   if (adminState === "add_number") {
-    numbersPool[selectedCountry].push({
+    typing(chatId);
+    const msgId = await loading(chatId, "Saving number...");
+
+    numbersPool[selectedCountry].numbers.push({
       number: text,
       used: false
     });
 
-    bot.sendMessage(chatId, `✅ Added to ${selectedCountry}`);
+    bot.editMessageText("✅ Number added", {
+      chat_id: chatId,
+      message_id: msgId
+    });
+
     reset();
-    adminMenu(chatId);
     return;
   }
 
-  if (adminState === "bulk_add") {
-    const numbers = text.split("\n");
+  //////////////////////////////////////////////////
+  // 📥 BULK ADD
+  //////////////////////////////////////////////////
 
-    numbers.forEach(num => {
-      if (num.trim()) {
-        numbersPool[selectedCountry].push({
-          number: num.trim(),
+  if (adminState === "bulk_add") {
+    typing(chatId);
+    const msgId = await loading(chatId, "Uploading numbers...");
+
+    text.split("\n").forEach(n => {
+      if (n.trim()) {
+        numbersPool[selectedCountry].numbers.push({
+          number: n.trim(),
           used: false
         });
       }
     });
 
-    bot.sendMessage(chatId, `✅ Bulk numbers added to ${selectedCountry}`);
+    bot.editMessageText("✅ Bulk upload done", {
+      chat_id: chatId,
+      message_id: msgId
+    });
+
     reset();
-    adminMenu(chatId);
     return;
   }
+
+  //////////////////////////////////////////////////
+  // ❌ DELETE
+  //////////////////////////////////////////////////
 
   if (adminState === "delete_number") {
     const index = parseInt(text) - 1;
 
-    if (numbersPool[selectedCountry][index]) {
-      numbersPool[selectedCountry].splice(index, 1);
-      bot.sendMessage(chatId, "✅ Deleted");
+    typing(chatId);
+    const msgId = await loading(chatId, "Deleting...");
+
+    if (numbersPool[selectedCountry].numbers[index]) {
+      numbersPool[selectedCountry].numbers.splice(index, 1);
+      bot.editMessageText("🗑 Deleted", {
+        chat_id: chatId,
+        message_id: msgId
+      });
     } else {
-      bot.sendMessage(chatId, "❌ Invalid index");
+      bot.editMessageText("❌ Invalid index", {
+        chat_id: chatId,
+        message_id: msgId
+      });
     }
 
     reset();
-    adminMenu(chatId);
     return;
   }
 
-  if (adminState === "choose_auto" && numbersPool[text]) {
+  //////////////////////////////////////////////////
+  // ♻️ MARK FREE
+  //////////////////////////////////////////////////
 
-    const number = getFreeNumber(text);
+  if (adminState === "mark_free") {
+    const index = parseInt(text) - 1;
 
-    if (!number) {
-      bot.sendMessage(chatId, "❌ No free numbers available");
+    typing(chatId);
+    const msgId = await loading(chatId, "Updating...");
+
+    const list = numbersPool[selectedCountry].numbers;
+
+    if (list[index]) {
+      list[index].used = false;
+      bot.editMessageText("♻️ Now FREE", {
+        chat_id: chatId,
+        message_id: msgId
+      });
     } else {
-      bot.sendMessage(chatId,
-        `📱 Number Assigned:\n\n${number}\n\n✅ Marked as USED`
-      );
+      bot.editMessageText("❌ Invalid", {
+        chat_id: chatId,
+        message_id: msgId
+      });
     }
 
     reset();
-    adminMenu(chatId);
     return;
   }
+
+  //////////////////////////////////////////////////
+  // BUTTONS
+  //////////////////////////////////////////////////
 
   if (text === "➕ Add Country") {
     adminState = "add_country";
-    bot.sendMessage(chatId, "🌍 Enter country name:", backBtn());
+    bot.sendMessage(chatId, "🌍 Send: Country Price", backBtn());
   }
 
   else if (text === "📱 Add Number") {
@@ -166,20 +300,22 @@ bot.on('message', (msg) => {
     showCountries(chatId, "❌ Select country:");
   }
 
-  else if (text === "🚀 Get Number") {
-    adminState = "choose_auto";
-    showCountries(chatId, "🌍 Select country:");
+  else if (text === "♻️ Mark Free") {
+    adminState = "choose_mark";
+    showCountries(chatId, "♻️ Select country:");
   }
 
   else if (text === "🌍 Countries") {
     let list = "🌍 Countries:\n\n";
-
     Object.keys(numbersPool).forEach(c => {
-      list += `• ${c} (${numbersPool[c].length})\n`;
+      list += `• ${c} ₹${numbersPool[c].price} (${numbersPool[c].numbers.length})\n`;
     });
-
-    bot.sendMessage(chatId, list || "No countries yet", backBtn());
+    bot.sendMessage(chatId, list, backBtn());
   }
+
+  //////////////////////////////////////////////////
+  // COUNTRY SELECT
+  //////////////////////////////////////////////////
 
   else if (numbersPool[text]) {
 
@@ -187,15 +323,12 @@ bot.on('message', (msg) => {
 
     if (adminState === "choose_add") {
       adminState = "add_number";
-      bot.sendMessage(chatId, `📱 Send number for ${text}`, backBtn());
+      bot.sendMessage(chatId, "📱 Send number:", backBtn());
     }
 
     else if (adminState === "choose_bulk") {
       adminState = "bulk_add";
-      bot.sendMessage(chatId,
-        `📥 Send numbers (one per line) for ${text}`,
-        backBtn()
-      );
+      bot.sendMessage(chatId, "📥 Send numbers:", backBtn());
     }
 
     else if (adminState === "choose_view") {
@@ -208,31 +341,45 @@ bot.on('message', (msg) => {
       adminState = "delete_number";
       bot.sendMessage(chatId, "❌ Send index:", backBtn());
     }
+
+    else if (adminState === "choose_mark") {
+      showNumbers(chatId, text);
+      adminState = "mark_free";
+      bot.sendMessage(chatId, "♻️ Send index:", backBtn());
+    }
   }
 });
 
-function showNumbers(chatId, country) {
-  const list = numbersPool[country];
+//////////////////////////////////////////////////
+// 📋 SHOW NUMBERS
+//////////////////////////////////////////////////
 
-  if (!list || list.length === 0) {
+function showNumbers(chatId, country) {
+  const list = numbersPool[country].numbers;
+
+  if (!list.length) {
     bot.sendMessage(chatId, "❌ No numbers", backBtn());
     return;
   }
 
-  let text = `📱 ${country} Numbers:\n\n`;
+  let text = `📱 ${country}:\n\n`;
 
-  list.forEach((obj, i) => {
-    text += `${i + 1}. ${obj.number} → ${obj.used ? "❌ Used" : "✅ Free"}\n`;
+  list.forEach((n, i) => {
+    text += `${i + 1}. ${n.number} → ${n.used ? "❌ Used" : "✅ Free"}\n`;
   });
 
   bot.sendMessage(chatId, text, backBtn());
 }
 
+//////////////////////////////////////////////////
+// 🌍 SHOW COUNTRIES
+//////////////////////////////////////////////////
+
 function showCountries(chatId, title) {
   const keys = Object.keys(numbersPool);
 
-  if (keys.length === 0) {
-    bot.sendMessage(chatId, "❌ No countries added yet", backBtn());
+  if (!keys.length) {
+    bot.sendMessage(chatId, "❌ No countries", backBtn());
     return;
   }
 
@@ -247,6 +394,10 @@ function showCountries(chatId, title) {
   });
 }
 
+//////////////////////////////////////////////////
+// 🔙 BACK BTN
+//////////////////////////////////////////////////
+
 function backBtn() {
   return {
     reply_markup: {
@@ -256,9 +407,15 @@ function backBtn() {
   };
 }
 
+//////////////////////////////////////////////////
+// 🔄 RESET
+//////////////////////////////////////////////////
+
 function reset() {
   adminState = null;
   selectedCountry = null;
 }
 
-console.log("🚀 Auto Assign Admin Bot Running...");
+//////////////////////////////////////////////////
+
+console.log("🚀 PRO ANIMATED ADMIN BOT RUNNING...");
