@@ -1,35 +1,12 @@
 const TelegramBot = require('node-telegram-bot-api');
-const fs = require('fs');
 
-// 🔐 SAFE TOKEN (Railway variable)
-const token = process.env.BOT_TOKEN;
-
-if (!token) {
-  console.log("❌ BOT_TOKEN not found!");
-  process.exit(1);
-}
-
+const token = "8708024661:AAHck_MSBLcIUV4IQsCsFETj6fVn7bE8lmI";
 const bot = new TelegramBot(token, { polling: true });
 
 const ADMIN_ID = 7855128004;
 
-// 📁 FILE STORAGE
-const DATA_FILE = "data.json";
-
-// 🌍 Load data
+// 🌍 Dynamic storage
 let numbersPool = {};
-try {
-  if (fs.existsSync(DATA_FILE)) {
-    numbersPool = JSON.parse(fs.readFileSync(DATA_FILE));
-  }
-} catch (e) {
-  console.log("Error loading data:", e);
-}
-
-// 💾 Save function
-function saveData() {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(numbersPool, null, 2));
-}
 
 let adminState = null;
 let selectedCountry = null;
@@ -74,7 +51,6 @@ bot.on('message', (msg) => {
   if (adminState === "add_country") {
     if (!numbersPool[text]) {
       numbersPool[text] = [];
-      saveData();
       bot.sendMessage(chatId, `✅ Country added: ${text}`);
     } else {
       bot.sendMessage(chatId, "⚠️ Already exists");
@@ -89,7 +65,6 @@ bot.on('message', (msg) => {
 
   if (adminState === "add_number") {
     numbersPool[selectedCountry].push(text);
-    saveData();
     bot.sendMessage(chatId, `✅ Added to ${selectedCountry}`);
     reset();
     return;
@@ -104,7 +79,6 @@ bot.on('message', (msg) => {
 
     if (numbersPool[selectedCountry][index]) {
       numbersPool[selectedCountry].splice(index, 1);
-      saveData();
       bot.sendMessage(chatId, "✅ Deleted");
     } else {
       bot.sendMessage(chatId, "❌ Invalid index");
@@ -228,4 +202,4 @@ function reset() {
 
 //////////////////////////////////////////////////
 
-console.log("🌍 Production Admin Bot Running...");
+console.log("🌍 Dynamic Country Admin Bot Running...");
