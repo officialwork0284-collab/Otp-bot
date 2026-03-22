@@ -302,7 +302,7 @@ bot.on('message', async (msg) => {
 
   else if (text === "♻️ Mark Free") {
     adminState = "choose_mark";
-    showCountries(chatId, "♻️ Select country:");
+    showCountries(chatId, "♻️ Select county:");
   }
 
   else if (text === "🌍 Countries") {
