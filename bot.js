@@ -1,11 +1,11 @@
 const TelegramBot = require('node-telegram-bot-api');
 
 // ⚠️ DEMO TOKEN (NOT SAFE — CHANGE LATER)
-const token = "8708024661:AAHck_MSBLcIUV4IQsCsFETj6fVn7bE8lmI";
+const token = "8618485907:AAE5xSlFJFM556vRcZBvTP2vAG8YTOT0_UI";
 
 const bot = new TelegramBot(token, { polling: true });
 
-const ADMIN_ID = 7855128004;
+const ADMIN_ID = 8065726393;
 
 // 🌍 STORAGE
 let numbersPool = {};
